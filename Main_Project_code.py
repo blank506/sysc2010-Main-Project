@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 
 time = None
 signal = None
-processed_signal = None
-fs = None
+processed_signal = np.array([])
+fs = 0.0
 
 
 # ---------------------------
@@ -52,7 +52,7 @@ def load_csv():
     # handle missing values
     signal = pd.Series(signal).interpolate().fillna(method='bfill').values
 
-    processed_signal = signal.copy()
+    processed_signal = signal.copy(signal)
 
     fs = 1/(time[1]-time[0])
 
@@ -61,7 +61,7 @@ def load_csv():
 # FILTERS
 # ---------------------------
 
-def butter_filter(data, cutoff, fs, btype, order=4):
+def butter_filter(data, cutoff, fs: float, btype, order=4):
 
     nyq = 0.5 * fs
     normal_cutoff = np.array(cutoff) / nyq
