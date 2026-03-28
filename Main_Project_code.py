@@ -50,9 +50,9 @@ def load_csv():
         signal = df.iloc[:,1].values
 
     # handle missing values
-    signal = pd.Series(signal).interpolate().fillna(method='bfill').values
+    signal = pd.Series(signal).interpolate().bfill().values
 
-    processed_signal = signal.copy(signal)
+    processed_signal = signal.copy()
 
     fs = 1/(time[1]-time[0])
 
@@ -63,13 +63,14 @@ def load_csv():
 
 def butter_filter(data, cutoff, fs: float, btype, order=4):
 
-    nyq = 0.5 * fs
-    normal_cutoff = np.array(cutoff) / nyq
+    data = np.asarray(data, dtype=float)
 
-    b, a = butter(order, normal_cutoff, btype=btype)
+    nyq = 0.5 * fs
+    normal_cutoff = np.array(cutoff, dtype=float) / nyq
+
+    b, a = butter(order, normal_cutoff, btype)
 
     return filtfilt(b, a, data)
-
 
 def apply_lpf():
 
