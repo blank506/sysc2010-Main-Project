@@ -1,0 +1,285 @@
+import numpy as np
+import pandas as pd
+import tkinter as tk
+from tkinter import filedialog, ttk, messagebox
+from scipy.signal import butter, filtfilt, firwin, find_peaks
+from scipy.fft import fft, fftfreq
+import matplotlib.pyplot as plt
+
+# ---------------------------
+# GLOBAL VARIABLES
+# ---------------------------
+time = None
+signal = None
+processed_signal = None
+fs = None
+
+# ---------------------------
+# PREPROCESSING
+# ---------------------------
+def preprocess_signal(sig):
+    sig = pd.Series(sig).interpolate().bfill().values
+    sig = (sig - np.mean(sig)) / np.std(sig)  # normalization
+    return sig
+
+# ---------------------------
+# CSV LOADER
+# ---------------------------
+def load_csv():
+    global time, signal, processed_signal, fs
+
+    file_path = filedialog.askopenfilename(filetypes=[("CSV Files","*.csv")])
+    if not file_path:
+        return
+
+    try:
+        df = pd.read_csv(file_path)
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+        return
+
+    columns = df.columns
+
+    # -------- TIME DETECTION --------
+    if "time" in columns:
+        try:
+            dt = pd.to_datetime(df["time"])
+            time = (dt - dt.iloc[0]).dt.total_seconds().values
+        except:
+            time = df["time"].values
+
+    if "time24" in columns:
+        try:
+            # convert datetime to seconds
+            dt = pd.to_datetime(df["time24"])
+            time = (dt - dt.iloc[0]).dt.total_seconds().values
+        except:
+             time = np.arange(len(df))
+  
+
+    # Convert datetime if exists
+    if "Datetime" in df.columns:
+        df["Datetime"] = pd.to_datetime(df["Datetime"])
+    
+        # Take first 5 days
+        start = df["Datetime"].iloc[0]
+        end = start + pd.Timedelta(days=5)
+
+        df = df[df["Datetime"] <= end]
+        
+    else:
+        time = np.arange(len(df))  # fallback
+
+    # -------- SIGNAL DETECTION --------
+    if "ecg" in columns:
+        signal = df["ecg"].values
+
+    elif "lead_I" in columns:
+        signal = df["lead_I"].values
+
+    elif "DAYTON_MW" in columns:
+        signal = df["DAYTON_MW"].values
+
+    else:
+        # pick first numeric column
+        signal = df.select_dtypes(include=[np.number]).iloc[:,0].values
+
+    # preprocess
+    processed_signal = preprocess_signal(signal)
+
+
+    # sampling frequency
+    dt = np.diff(time)
+    dt = dt[dt > 0]  # avoid duplicates
+    fs = 1 / np.mean(dt)
+
+    plot_time()
+
+# ---------------------------
+# FILTERS
+# ---------------------------
+def butter_filter(data, cutoff, fs, btype, order=4):
+    nyq = 0.5 * fs
+
+    if isinstance(cutoff, list):
+        normal_cutoff = [c / nyq for c in cutoff]
+    else:
+        normal_cutoff = cutoff / nyq
+
+    b, a = butter(order, normal_cutoff, btype=btype)
+    return filtfilt(b, a, data)
+
+
+def fir_filter(data, cutoff, fs, btype, numtaps=101):
+    nyq = 0.5 * fs
+
+    if btype == 'low':
+        taps = firwin(numtaps, cutoff/nyq)
+    elif btype == 'high':
+        taps = firwin(numtaps, cutoff/nyq, pass_zero=False)
+    elif btype == 'band':
+        taps = firwin(numtaps, [cutoff[0]/nyq, cutoff[1]/nyq], pass_zero=False)
+
+    return filtfilt(taps, [1.0], data)
+
+
+def get_cutoff():
+    stype = signal_type.get()
+
+    if stype == "ECG":
+        return [0.5, 40]
+    elif stype == "Temperature":
+        return [0.0001, 0.01]
+    elif stype == "Respiration":
+        return [0.1, 2]
+
+    return [0.5, 40]
+
+
+def apply_filter(filter_type):
+    global processed_signal
+
+    cutoff = get_cutoff()
+    method = filter_method.get()
+
+    if filter_type == "low":
+        cutoff = cutoff[1]
+    elif filter_type == "high":
+        cutoff = cutoff[0]
+
+
+    if method == "IIR":
+        processed_signal = butter_filter(processed_signal, cutoff, fs, filter_type)
+    else:
+        processed_signal = fir_filter(processed_signal, cutoff, fs, filter_type)
+
+    plot_time()
+
+
+# ---------------------------
+# FEATURE EXTRACTION
+# ---------------------------
+def compute_features():
+    stype = signal_type.get()
+    feature_text = ""
+
+    if stype == "ECG":
+        window_size = int(fs * 10)  # 10 seconds
+        segment = processed_signal[:window_size]
+
+        peaks, _ = find_peaks(segment, distance=fs*0.5, height=np.std(segment)*0.5)
+
+        duration = time[window_size] - time[0]
+        bpm = len(peaks) / duration * 60
+
+        feature_text = f"Heart Rate: {bpm:.2f} BPM"
+
+    elif stype == "Temperature":
+        slope = (processed_signal[-1] - processed_signal[0])/(time[-1]-time[0])
+        feature_text = f"Trend Slope: {slope:.4f}"
+
+    elif stype == "Respiration":
+        peaks, _ = find_peaks(processed_signal, distance=fs*1.5)
+        rate = len(peaks)/(time[-1]-time[0])*60
+        feature_text = f"Breathing Rate: {rate:.2f} BPM"
+
+    return feature_text
+# ---------------------------
+# STATISTICS
+# ---------------------------
+def compute_stats():
+    mean = np.mean(processed_signal)
+    std = np.std(processed_signal)
+    rms = np.sqrt(np.mean(processed_signal**2))
+    p2p = np.ptp(processed_signal)
+
+    features = compute_features()
+
+    stats_text.set(
+        f"Mean: {mean:.3f}\nSTD: {std:.3f}\nRMS: {rms:.3f}\nPeak-Peak: {p2p:.3f}\n{features}"
+    )
+
+# ---------------------------
+# FFT
+# ---------------------------
+def show_fft():
+    N = len(processed_signal)
+    yf = fft(processed_signal)
+    xf = fftfreq(N, 1/fs)
+
+    dominant_freq = xf[np.argmax(np.abs(yf))]
+
+    plt.figure()
+    plt.plot(xf[:N//2], np.abs(yf[:N//2]))
+    plt.title(f"FFT (Dominant: {dominant_freq:.2f} Hz)")
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("Magnitude")
+    plt.grid()
+    plt.show()
+
+# ---------------------------
+# PLOT
+# ---------------------------
+def plot_time():
+    plt.figure()
+    plt.plot(time, signal, label="Raw", alpha=0.5)
+    plt.plot(time, processed_signal, label="Processed")
+    plt.legend()
+    plt.title("Time Domain")
+    plt.xlabel("Time")
+    plt.ylabel("Amplitude")
+    plt.grid()
+    plt.show()
+
+    compute_stats()
+
+# ---------------------------
+# RESET
+# ---------------------------
+def reset_signal():
+    global processed_signal
+    processed_signal = signal.copy()
+    plot_time()
+
+# ---------------------------
+# GUI
+# ---------------------------
+root = tk.Tk()
+root.title("Sensor Signal Processing Tool")
+root.geometry("520x500")
+
+# Title
+tk.Label(root, text="Signal Processing Tool", font=("Arial",16)).pack(pady=10)
+
+# Load
+tk.Button(root, text="Load CSV", command=load_csv).pack(pady=5)
+
+# Signal Type
+signal_type = tk.StringVar()
+ttk.Combobox(root, textvariable=signal_type,
+             values=("ECG","Temperature","Respiration")).pack(pady=5)
+
+# Filter Method
+filter_method = tk.StringVar(value="IIR")
+ttk.Combobox(root, textvariable=filter_method,
+             values=("IIR","FIR")).pack(pady=5)
+
+# Filters
+frame = tk.Frame(root)
+frame.pack(pady=10)
+
+tk.Button(frame, text="LPF", command=lambda: apply_filter("low")).grid(row=0,column=0,padx=5)
+tk.Button(frame, text="HPF", command=lambda: apply_filter("high")).grid(row=0,column=1,padx=5)
+tk.Button(frame, text="BPF", command=lambda: apply_filter("band")).grid(row=0,column=2,padx=5)
+
+# FFT
+tk.Button(root, text="Show FFT", command=show_fft).pack(pady=10)
+
+# Reset
+tk.Button(root, text="Reset", command=reset_signal).pack(pady=5)
+
+# Stats
+stats_text = tk.StringVar()
+tk.Label(root, textvariable=stats_text, justify="left").pack(pady=20)
+
+root.mainloop()
