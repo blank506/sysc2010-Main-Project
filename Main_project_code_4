@@ -47,6 +47,11 @@ def load_csv():
 
     #elif "Datetime1" in df.columns:  # fallback (not ideal) we already got a column for TEMP time
         #dt = pd.to_datetime(df["Datetime1"], errors='coerce')
+        
+    elif "PSD Time [s]" in df.columns: 
+        time = df["PSD Time [s]"].values
+        time = time - time[0]           # normalize to start at 0
+        dt = None   
     else:
         messagebox.showerror("Error", "No valid time column found")
         return
@@ -62,6 +67,8 @@ def load_csv():
     print("Duration:", time[-1] - time[0])
     
     # -------- SIGNAL --------
+    if signal_type.get() == "Respiration" and "PSD Flow [L/s]" in df.columns:
+        sigcol = "PSD Flow [L/s]"
     if signal_type.get() == "Temperature" and "DAYTON_MW" in df.columns:
         sigcol = "DAYTON_MW"
 
@@ -90,7 +97,6 @@ def load_csv():
     # -------- SAMPLING RATE --------
     dt = np.diff(time)
     dt = dt[dt > 0]
-    fs = 1 / np.mean(dt)
     fs = 1 / np.mean(dt)
     print("Sampling frequency:", fs)
 
