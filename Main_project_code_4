@@ -38,9 +38,15 @@ def load_csv():
 
     # -------- TIME --------
     if "time24" in df.columns:
-        dt = pd.to_datetime(df["time24"])
+        dt = pd.to_datetime(df["time24"])#for the ECG data/had to change the name from the data file from time to time 24
     elif "time" in df.columns:
         dt = pd.to_datetime(df["time"])
+
+    elif "Datetime" in df.columns:   
+         dt = pd.to_datetime(df["Datetime"])#for the TEMP data
+
+    #elif "Datetime1" in df.columns:  # fallback (not ideal) we already got a column for TEMP time
+        #dt = pd.to_datetime(df["Datetime1"], errors='coerce')
     else:
         messagebox.showerror("Error", "No valid time column found")
         return
@@ -54,24 +60,39 @@ def load_csv():
     print("Duration:", time[-1])  
     print("Samples:", len(time))
     print("Duration:", time[-1] - time[0])
-    print("Sampling frequency:", fs)
-
+    
     # -------- SIGNAL --------
-    if "ecg" in df.columns:
+    if signal_type.get() == "Temperature" and "DAYTON_MW" in df.columns:
+        sigcol = "DAYTON_MW"
+
+    elif "ecg" in df.columns:
         sigcol = "ecg"
     elif "signal" in df.columns:
         sigcol = "signal"
     else:
-        sigcol = df.select_dtypes(include=[np.number]).columns[0]
+        num_cols = df.select_dtypes(include=[np.number]).columns
+
+        if len(num_cols) == 0:
+            messagebox.showerror("Error", "No numeric signal column found")
+            return
+
+        sigcol = num_cols[0]
 
     signal = df[sigcol].values
-    original_signal = preprocess_signal(signal)
+
+    if signal_type.get() == "Temperature":
+        original_signal = signal.copy()   # keep real values (°C)
+    else:
+        original_signal = preprocess_signal(signal)
+
     processed_signal = original_signal.copy()
 
     # -------- SAMPLING RATE --------
     dt = np.diff(time)
     dt = dt[dt > 0]
     fs = 1 / np.mean(dt)
+    fs = 1 / np.mean(dt)
+    print("Sampling frequency:", fs)
 
     plot_time()
 
