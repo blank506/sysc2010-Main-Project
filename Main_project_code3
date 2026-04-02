@@ -83,10 +83,9 @@ def load_csv():
         messagebox.showerror("Time Error", "No valid time data found.")
         return
 
-    # Determine signal column
     if "ecg" in df.columns:
         sigcol = "ecg"
-    if "signal" in df.columns:
+    elif "signal" in df.columns:
         sigcol = "signal"
     elif "lead_I" in df.columns:
         sigcol = "lead_I"
