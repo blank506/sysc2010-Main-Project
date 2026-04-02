@@ -215,4 +215,5 @@ stats_text = tk.StringVar()
 stats_label = tk.Label(root, textvariable=stats_text, font=("Arial",12), justify="left")
 stats_label.pack(pady=20)
 
-root.mainloop()
+if __name__ == "__main__":
+    root.mainloop()
