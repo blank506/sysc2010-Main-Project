@@ -52,7 +52,10 @@ def load_csv():
 
     # checking (optional but useful)
     print("Duration:", time[-1])  
-      
+    print("Samples:", len(time))
+    print("Duration:", time[-1] - time[0])
+    print("Sampling frequency:", fs)
+
     # -------- SIGNAL --------
     if "ecg" in df.columns:
         sigcol = "ecg"
@@ -176,17 +179,33 @@ def show_fft():
 # PLOT
 # ---------------------------
 def plot_time():
+    if time is None or original_signal is None:
+        return
+
+    stype = signal_type.get()
+
+    # Smart display window
+    if stype == "Temperature":
+        duration = 3600 * 24 * 2   # show 2 days
+    else:
+        duration = 10              # show 10 seconds
+
+    idx = time <= duration
+
     plt.figure()
-    plt.plot(time, original_signal, label="Raw", alpha=0.5)
-    plt.plot(time, processed_signal, label="Filtered")
+    plt.plot(time[idx], original_signal[idx], label="Raw", alpha=0.5)
+
+    if processed_signal is not None:
+        plt.plot(time[idx], processed_signal[idx], label="Filtered")
+
     plt.legend()
-    plt.title("Time Domain")
+    plt.title(f"Time Domain ({stype})")
     plt.xlabel("Time (s)")
+    plt.ylabel("Amplitude")
     plt.grid()
     plt.show()
 
     compute_stats()
-
 # ---------------------------
 # RESET
 # ---------------------------
