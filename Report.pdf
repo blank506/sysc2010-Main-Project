@@ -111,4 +111,8 @@ Future improvements could include real-time data processing and advanced feature
 7.About Data:
 So for our data we focused on finding realistic data that was gained from some exeriment. we needed three data sets --> (ECG/ temperature/respiration) so there was two websites that helped us to find these required data-> those two are:
     1.Kaggle --> we got the temperaturefilefrom it.
-    2.physionet --> we got the ECG file and respiration file. however these needed to be converted from .dat to .csv
+    2.physionet --> we got the ECG file and respiration file.
+        some of the files that were picked was in the format of WFDB,  however these needed to be converted from .dat to .csv-->but at the end i pulled out form 
+        that idea to use WFDB files, because it is hard to deal with.
+     this section was the hardest to deal with, due to it being in a specific format that i have never dealt with that is--> the date/time it was in the format of :
+     year/month/day/hour/min/sec/msec
