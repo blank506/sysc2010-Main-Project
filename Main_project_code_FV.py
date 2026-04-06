@@ -268,13 +268,32 @@ def compute_stats():
 # FFT
 # ---------------------------
 def show_fft():
-    N = len(processed_signal)
-    yf = fft(processed_signal)
+    if original_signal is None or processed_signal is None:
+        return
+
+    N = len(original_signal)
+
+    # FFT for raw signal
+    yf_raw = fft(original_signal)
     xf = fftfreq(N, 1/fs)
 
-    plt.figure()
-    plt.plot(xf[:N//2], np.abs(yf[:N//2]))
-    plt.title("FFT")
+    # FFT for filtered signal
+    yf_filtered = fft(processed_signal)
+
+    plt.figure(figsize=(10,5))
+
+    # Raw FFT
+    plt.plot(xf[:N//2], np.abs(yf_raw[:N//2]), 
+             label="Raw FFT", alpha=0.5)
+
+    # Filtered FFT
+    plt.plot(xf[:N//2], np.abs(yf_filtered[:N//2]), 
+             label="Filtered FFT", linewidth=2)
+
+    plt.title("FFT Comparison (Raw vs Filtered)")
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("Magnitude")
+    plt.legend()
     plt.grid()
     plt.show()
 
