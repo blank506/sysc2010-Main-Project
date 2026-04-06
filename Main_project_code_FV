@@ -39,30 +39,33 @@ def load_csv():
     # -------- TIME --------
     if "time24" in df.columns:
         dt = pd.to_datetime(df["time24"])#for the ECG data/had to change the name from the data file from time to time 24
+        time = (dt - dt.iloc[0]).dt.total_seconds().values
+
     elif "time" in df.columns:
         dt = pd.to_datetime(df["time"])
+        time = (dt - dt.iloc[0]).dt.total_seconds().values
 
     elif "Datetime" in df.columns:   
          dt = pd.to_datetime(df["Datetime"])#for the TEMP data
+         time = (dt - dt.iloc[0]).dt.total_seconds().values
 
     #elif "Datetime1" in df.columns:  # fallback (not ideal) we already got a column for TEMP time
         #dt = pd.to_datetime(df["Datetime1"], errors='coerce')
+        
+    elif "PSD_Time_s" in df.columns: 
+        time = df["PSD_Time_s"].values.astype(float)
 
-    elif "PSD Time [s]" in df.columns:
-        time = df["PSD Time [s]"].values
-        time = time - time[0]          # normalize
-        dt = None                      # important
+        # Remove duplicates properly (KEEP ALIGNMENT)
+        mask = np.diff(time, prepend=time[0]-1) > 0
+        time = time[mask]
+        #signal = signal[mask]
+
+        # Normalize time
+        time = time - time[0]
     else:
         messagebox.showerror("Error", "No valid time column found")
         return
-    if 'dt' in locals() and dt is not None:
-        time = (dt - dt.iloc[0]).dt.total_seconds().values
-        time = time - time[0]
 
-    time = (dt - dt.iloc[0]).dt.total_seconds().values
-
-    # LIMIT to actual duration/might work?
-    time = time - time[0]
 
     # checking (optional but useful)
     print("Duration:", time[-1])  
@@ -70,15 +73,18 @@ def load_csv():
     print("Duration:", time[-1] - time[0])
     
     # -------- SIGNAL --------
-    if signal_type.get() == "Respiration" and "PSD Flow [L/s]" in df.columns:
-        sigcol = "PSD Flow [L/s]"
-    if signal_type.get() == "Temperature" and "DAYTON_MW" in df.columns:
+    if signal_type.get() == "Respiration" and "PSD_Flow_L_s" in df.columns:
+        sigcol = "PSD_Flow_L_s"
+
+    elif signal_type.get() == "Temperature" and "DAYTON_MW" in df.columns:
         sigcol = "DAYTON_MW"
 
     elif "ecg" in df.columns:
         sigcol = "ecg"
+
     elif "signal" in df.columns:
         sigcol = "signal"
+
     else:
         num_cols = df.select_dtypes(include=[np.number]).columns
 
@@ -89,22 +95,46 @@ def load_csv():
         sigcol = num_cols[0]
 
     signal = df[sigcol].values
+    # Apply SAME mask to signal
+    if 'mask' in locals():
+        signal = signal[mask]
+
+    # Make signal match cleaned time
+    #signal = signal[:len(time)]
 
     if signal_type.get() == "Temperature":
-        original_signal = signal.copy()   # keep real values (°C)
+        sig = pd.Series(signal)
+        sig = sig.interpolate().rolling(window=5, center=True).mean()
+        original_signal = sig.bfill().ffill().values
+
+    elif signal_type.get() == "Respiration":
+        sig = pd.Series(signal)
+        sig = sig.rolling(window=15, center=True).mean()
+        original_signal = sig.bfill().ffill().values
+
+
     else:
         original_signal = preprocess_signal(signal)
 
     processed_signal = original_signal.copy()
 
+    print("Time length:", len(time))
+    print("Signal length:", len(signal))
     # -------- SAMPLING RATE --------
     dt = np.diff(time)
     dt = dt[dt > 0]
-    fs = 1 / np.mean(dt)
+
+    if signal_type.get() == "Temperature":
+        # Temperature can have large gaps → DO NOT trim
+        fs = 1 / np.mean(dt)
+
+    else:
+        # ECG & Resp → remove outliers safely
+        dt = dt[(dt > np.percentile(dt, 5)) & (dt < np.percentile(dt, 95))]
+        fs = 1 / np.mean(dt)
+
     print("Sampling frequency:", fs)
-
     plot_time()
-
 # ---------------------------
 # FILTERS
 # ---------------------------
@@ -115,29 +145,44 @@ def butter_filter(data, cutoff, fs, btype):
     else:
         Wn = cutoff / nyq
 
-    b, a = butter(4, Wn, btype=btype)
+    if signal_type.get() == "ECG":
+        order = 4 #for ECG
+    else:
+        order = 6   # stronger for respiration & temp
+
+    b, a = butter(order, Wn, btype=btype)
     return filtfilt(b, a, data)
 
 def fir_filter(data, cutoff, fs, btype):
     nyq = 0.5 * fs
 
     if btype == "low":
-        taps = firwin(101, cutoff/nyq)
+        norm_cutoff = min(cutoff / nyq, 0.99)
+        taps = firwin(101, norm_cutoff)
+
     elif btype == "high":
-        taps = firwin(101, cutoff/nyq, pass_zero=False)
-    else:
-        taps = firwin(101, [cutoff[0]/nyq, cutoff[1]/nyq], pass_zero=False)
+        norm_cutoff = max(cutoff / nyq, 0.001)
+        taps = firwin(101, norm_cutoff, pass_zero=False)
+
+    else:  # band
+        low = max(cutoff[0] / nyq, 0.001)
+        high = min(cutoff[1] / nyq, 0.99)
+        taps = firwin(101, [low, high], pass_zero=False)
 
     return filtfilt(taps, [1.0], data)
+
 
 def get_cutoff():
     stype = signal_type.get()
     if stype == "ECG":
-        return [0.5, 25]
+        return [0.5, 25] #had to chnage it to 25 insteade of 40, becuase it might help to remove the very hight freq? maybe?
+    
     elif stype == "Respiration":
-        return [0.1, 2]
+        return [0.1,0.4] #these values are better so that they remove more noise but still keep the signal 
+    
     elif stype == "Temperature":
-        return [0.0001, 0.01]
+        return [1/(3600*24*10), 1/(3600*6)] #low at 10 days, high at 6 hours 
+    
     return [0.5, 25]
 
 def apply_filter(filter_type):
@@ -150,6 +195,7 @@ def apply_filter(filter_type):
         cutoff_val = cutoff[1]
     elif filter_type == "high":
         cutoff_val = cutoff[0]
+    
     else:
         cutoff_val = cutoff
 
@@ -164,19 +210,46 @@ def apply_filter(filter_type):
 # FEATURES
 # ---------------------------
 def compute_features():
-    if signal_type.get() != "ECG":
-        return ""
+    stype = signal_type.get()
 
-    segment = processed_signal[:int(fs*10)]
-    peaks, _ = find_peaks(segment, distance=int(fs*0.4))
+    # -------- ECG --------
+    if stype == "ECG":
+        segment = processed_signal[:int(fs*10)]
+        peaks, _ = find_peaks(segment, distance=int(fs*0.4))
 
-    if len(peaks) < 2:
-        return "Heart Rate: 0 BPM"
+        if len(peaks) < 2:
+            return "Heart Rate: 0 BPM"
 
-    duration = time[peaks[-1]] - time[peaks[0]]
-    bpm = len(peaks)/duration * 60
+        duration = time[peaks[-1]] - time[peaks[0]]
+        bpm = len(peaks)/duration * 60
 
-    return f"Heart Rate: {bpm:.2f} BPM"
+        return f"Heart Rate: {bpm:.2f} BPM"
+
+    # -------- RESPIRATION --------
+    elif stype == "Respiration":
+        # Find peaks (breaths)
+        peaks, _ = find_peaks(processed_signal, distance=int(fs*1.5))
+
+        if len(peaks) < 2:
+            return "Breathing Rate: 0 BPM"
+
+        duration = time[peaks[-1]] - time[peaks[0]]
+        br = len(peaks)/duration * 60  # breaths per minute
+
+        rms = np.sqrt(np.mean(processed_signal**2))
+
+        return f"Breathing Rate: {br:.2f} BPM\nResp RMS: {rms:.3f}"
+
+    # -------- TEMPERATURE --------
+    elif stype == "Temperature":
+        mean_temp = np.mean(processed_signal)
+
+        # Trend (slope)
+        t = time - time[0]
+        slope = np.polyfit(t, processed_signal, 1)[0]
+        slope_per_hour = slope * 3600
+        return f"Avg Temp: {mean_temp:.2f}\nTrend: {slope_per_hour:.4f} °C/hour"
+    return ""
 
 # ---------------------------
 # STATS
@@ -216,7 +289,9 @@ def plot_time():
 
     # Smart display window
     if stype == "Temperature":
-        duration = 3600 * 24 * 2   # show 2 days
+        duration = 3600 * 24 * 30   # show 30 days
+    elif stype == "Respiration":
+        duration = 30 # show 30 seconds 
     else:
         duration = 10              # show 10 seconds
 
