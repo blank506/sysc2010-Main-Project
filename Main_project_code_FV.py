@@ -42,8 +42,14 @@ def load_csv():
         time = (dt - dt.iloc[0]).dt.total_seconds().values
 
     elif "time" in df.columns:
-        dt = pd.to_datetime(df["time"])
-        time = (dt - dt.iloc[0]).dt.total_seconds().values
+        if np.issubdtype(df["time"].dtype, np.number):
+            time = df["time"].values.astype(float)
+        else:
+            dt = pd.to_datetime(df["time"])
+            time = (dt - dt.iloc[0]).dt.total_seconds().values
+
+    elif "t" in df.columns:
+        time = df["t"].values.astype(float)
 
     elif "Datetime" in df.columns:   
          dt = pd.to_datetime(df["Datetime"])#for the TEMP data
@@ -95,7 +101,9 @@ def load_csv():
         sigcol = num_cols[0]
 
     signal = df[sigcol].values
-    # Apply SAME mask to signal
+    signal = pd.Series(signal).interpolate().bfill().ffill().values
+
+    # Apply SAME mask to signal 
     if 'mask' in locals():
         signal = signal[mask]
 
@@ -123,6 +131,13 @@ def load_csv():
     # -------- SAMPLING RATE --------
     dt = np.diff(time)
     dt = dt[dt > 0]
+    dt = np.diff(time)
+    dt = dt[dt > 0]
+
+    if len(dt) == 0:
+        fs = 1.0
+    else:
+        fs = 1 / np.mean(dt)
 
     if signal_type.get() == "Temperature":
         # Temperature can have large gaps → DO NOT trim
@@ -341,33 +356,34 @@ def reset_signal():
 # ---------------------------
 # GUI
 # ---------------------------
-root = tk.Tk()
-root.title("Signal Processing Tool")
-root.geometry("500x500")
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.title("Signal Processing Tool")
+    root.geometry("500x500")
 
-tk.Label(root, text="Signal Processing Tool", font=("Arial",16)).pack(pady=10)
+    tk.Label(root, text="Signal Processing Tool", font=("Arial",16)).pack(pady=10)
 
-tk.Button(root, text="Load CSV", command=load_csv).pack(pady=5)
+    tk.Button(root, text="Load CSV", command=load_csv).pack(pady=5)
 
-signal_type = tk.StringVar(value="ECG")
-ttk.Combobox(root, textvariable=signal_type,
-             values=("ECG","Respiration","Temperature")).pack(pady=5)
+    signal_type = tk.StringVar(value="ECG")
+    ttk.Combobox(root, textvariable=signal_type,
+                values=("ECG","Respiration","Temperature")).pack(pady=5)
 
-filter_method = tk.StringVar(value="IIR")
-ttk.Combobox(root, textvariable=filter_method,
-             values=("IIR","FIR")).pack(pady=5)
+    filter_method = tk.StringVar(value="IIR")
+    ttk.Combobox(root, textvariable=filter_method,
+                values=("IIR","FIR")).pack(pady=5)
 
-frame = tk.Frame(root)
-frame.pack(pady=10)
+    frame = tk.Frame(root)
+    frame.pack(pady=10)
 
-tk.Button(frame, text="Low Pass", command=lambda: apply_filter("low")).grid(row=0,column=0,padx=5)
-tk.Button(frame, text="High Pass", command=lambda: apply_filter("high")).grid(row=0,column=1,padx=5)
-tk.Button(frame, text="Band Pass", command=lambda: apply_filter("band")).grid(row=0,column=2,padx=5)
+    tk.Button(frame, text="Low Pass", command=lambda: apply_filter("low")).grid(row=0,column=0,padx=5)
+    tk.Button(frame, text="High Pass", command=lambda: apply_filter("high")).grid(row=0,column=1,padx=5)
+    tk.Button(frame, text="Band Pass", command=lambda: apply_filter("band")).grid(row=0,column=2,padx=5)
 
-tk.Button(root, text="Show FFT", command=show_fft).pack(pady=10)
-tk.Button(root, text="Reset", command=reset_signal).pack(pady=5)
+    tk.Button(root, text="Show FFT", command=show_fft).pack(pady=10)
+    tk.Button(root, text="Reset", command=reset_signal).pack(pady=5)
 
-stats_text = tk.StringVar()
-tk.Label(root, textvariable=stats_text).pack(pady=20)
+    stats_text = tk.StringVar()
+    tk.Label(root, textvariable=stats_text).pack(pady=20)
 
-root.mainloop()
+    root.mainloop()
